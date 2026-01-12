@@ -6,31 +6,35 @@ import os
 # ===============================
 # Paths
 # ===============================
-processed_dir = r"D:\Long\Uni\Big Data\flight-analytics\hdfs_yarn_setup\data\processed"
-background_image = r"D:\Long\Uni\Big Data\flight-analytics\hdfs_yarn_setup\streamlit_app\bg.jpg"
+current_dir = os.path.dirname(os.path.abspath(__file__))
+processed_dir = os.path.join(os.path.dirname(current_dir), "data")
+background_image = os.path.join(current_dir, "bg.png")
 
 # ===============================
 # CSS Background
 # ===============================
-st.markdown(
-    f"""
+# Only set background if image exists
+if os.path.exists(background_image):
+    with open(background_image, "rb") as img_file:
+        import base64
+        img_base64 = base64.b64encode(img_file.read()).decode()
+    
+    bg_css = f"""
     <style>
     .stApp {{
-        background-image: url("file:///{background_image}");
+        background-image: url("data:image/png;base64,{img_base64}");
         background-size: cover;
         background-attachment: fixed;
     }}
     </style>
-    """,
-    unsafe_allow_html=True
-)
+    """
+    st.markdown(bg_css, unsafe_allow_html=True)
 
-st.title("Flight Analytics Dashboard (Memory-Safe)")
+st.title("Flight Analytics Dashboard")
 
 # ===============================
 # Load & aggregate counts file-by-file
 # ===============================
-@st.cache_data
 def load_stats():
     files = glob.glob(os.path.join(processed_dir, "*.parquet"))
     if not files:
@@ -48,7 +52,7 @@ def load_stats():
     for f in files:
         # load chỉ các cột cần thiết
         df = pd.read_parquet(f, columns=[
-            "flight_id", "dof", "adep_p", "ades_p", "typecode", "registration"
+            "flt_id", "dof", "adep_p", "ades_p", "typecode", "registration"
         ])
         # Month counts
         df["month"] = pd.to_datetime(df["dof"], errors="coerce").dt.month
@@ -72,9 +76,9 @@ def load_stats():
             reg_counts[k] = reg_counts.get(k, 0) + v
 
         # Flights with UNKNOWN flight_id
-        unknown = df[df["flight_id"] == "UNKNOWN"]
+        unknown = df[df["flt_id"] == "UNKNOWN"]
         if not unknown.empty:
-            unknown_flights.append(unknown[["flight_id","dof","adep_p","ades_p"]])
+            unknown_flights.append(unknown[["flt_id","dof","adep_p","ades_p"]])
 
     return {
         "month": pd.Series(month_counts).sort_index(),
