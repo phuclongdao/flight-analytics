@@ -1,0 +1,506 @@
+================================================================================
+                    BÁO CÁO TÓM TẮT DỰ ÁN FLIGHT ANALYTICS
+================================================================================
+
+Ngày tạo báo cáo: 12/01/2026
+Đường dẫn dự án: e:\Code\BIGDATA\flight-analytics
+
+================================================================================
+1. TỔNG QUAN DỰ ÁN
+================================================================================
+
+Flight Analytics là một dự án phân tích dữ liệu chuyến bay lớn (Big Data) 
+sử dụng công nghệ Hadoop, YARN, và Apache Spark để xử lý và phân tích hàng 
+chục triệu bản ghi chuyến bay.
+
+Mục tiêu chính:
+- Xử lý và phân tích dữ liệu chuyến bay quy mô lớn (43+ triệu bản ghi)
+- Xây dựng hệ thống phân tán với HDFS và YARN
+- Cung cấp dashboard trực quan để phân tích dữ liệu
+- Đánh giá chất lượng dữ liệu và xử lý dữ liệu thiếu
+
+================================================================================
+2. DỮ LIỆU
+================================================================================
+
+Dataset: opdi_clean.parquet
+- Tổng số bản ghi: 43,540,769 chuyến bay
+- Định dạng: Parquet (tối ưu cho xử lý Big Data)
+- Lưu trữ: Google Drive (do hạn chế kích thước GitHub)
+- Link: https://drive.google.com/drive/folders/1-Cmwh7k08iIo0avsyM5YU_Zs-qIVVtFZ
+
+Cấu trúc dữ liệu (10 cột):
+┌─────────────┬──────────────────────────────────────────────────┐
+│ Tên cột    │ Mô tả                                            │
+├─────────────┼──────────────────────────────────────────────────┤
+│ icao24     │ Mã định danh ICAO 24-bit của máy bay            │
+│ flight_id  │ Mã chuyến bay                                    │
+│ first_seen │ Thời điểm phát hiện đầu tiên                    │
+│ last_seen  │ Thời điểm phát hiện cuối cùng                   │
+│ dof        │ Date of flight (ngày bay)                        │
+│ adep_p     │ Airport of Departure (sân bay đi)               │
+│ ades_p     │ Airport of Destination (sân bay đến)            │
+│ registration│ Số đăng ký máy bay                              │
+│ model      │ Model máy bay                                    │
+│ typecode   │ Mã loại máy bay                                  │
+└─────────────┴──────────────────────────────────────────────────┘
+
+================================================================================
+3. KIẾN TRÚC HỆ THỐNG
+================================================================================
+
+3.1. Hạ tầng Hadoop Cluster (Docker-based)
+-------------------------------------------
+
+Hệ thống sử dụng Docker Compose để triển khai một cụm Hadoop hoàn chỉnh:
+
+A. HDFS (Hadoop Distributed File System):
+   - NameNode (1 node):
+     * Port 9870: Web UI quản lý HDFS
+     * Port 9000: HDFS service
+     * Chức năng: Quản lý metadata và namespace
+   
+   - DataNode (3 nodes):
+     * datanode1 (port 9864)
+     * datanode2 (port 9865) 
+     * datanode3 (port 9866)
+     * Replication factor: 3 (mỗi block được sao chép 3 lần)
+     * Chức năng: Lưu trữ dữ liệu phân tán
+
+B. YARN (Yet Another Resource Negotiator):
+   - ResourceManager (1 node):
+     * Port 8088: Web UI quản lý YARN
+     * Port 8032: RPC endpoint
+     * Chức năng: Quản lý tài nguyên cluster
+   
+   - NodeManager (3 nodes):
+     * nodemanager1 (port 8042)
+     * nodemanager2 (port 8043)
+     * nodemanager3 (port 8044)
+     * Memory: 4096 MB per node
+     * CPU cores: 4 vCores per node
+     * Chức năng: Quản lý tài nguyên trên từng node
+   
+   - HistoryServer (1 node):
+     * Port 8188: Web UI
+     * Chức năng: Lưu lịch sử job execution
+
+C. Cấu hình kỹ thuật:
+   - Image: bde2020/hadoop-* (version 2.0.0-hadoop3.2.1-java8)
+   - Block size: 128 MB
+   - Compression: Snappy codec
+   - Network: Bridge driver (docker network)
+
+3.2. Môi trường phát triển:
+----------------------------
+- Python 3.x với pip
+- PyArrow: Xử lý file Parquet
+- PySpark: Xử lý Big Data trên Hadoop
+- Pandas: Phân tích dữ liệu
+- Streamlit: Dashboard visualization
+- Docker & Docker Compose: Container orchestration
+
+================================================================================
+4. CÁC MODULE CHÍNH
+================================================================================
+
+4.1. Quality Assessment (Quality assessment.py)
+------------------------------------------------
+Mục đích: Đánh giá chất lượng dữ liệu trước khi xử lý
+
+Chức năng:
+- Đếm tổng số bản ghi (43,540,769 rows)
+- Phân tích tỷ lệ giá trị NULL/thiếu cho từng cột
+- Hiển thị mẫu dữ liệu (5 bản ghi đầu tiên)
+- Sử dụng PyArrow Dataset API để xử lý hiệu quả
+
+Công nghệ:
+- pyarrow.dataset: Đọc Parquet hiệu quả
+- pyarrow.compute: Tính toán song song
+- pandas: Display dữ liệu
+
+4.2. Analytics Module (analytics/analytics.py)
+-----------------------------------------------
+Mục đích: Xử lý và phân tích dữ liệu trên Hadoop Cluster
+
+Workflow chi tiết:
+
+Bước 1: Khởi tạo SparkSession
+- Tạo session với tên "Process Flights Batch"
+- Kết nối đến Hadoop cluster
+
+Bước 2: Đọc dữ liệu từ HDFS
+- Đường dẫn: hdfs://namenode:9000/user/root/processed/*.parquet
+- Đọc tất cả file Parquet trong thư mục
+
+Bước 3: Phân tích schema
+- Kiểm tra cấu trúc dữ liệu
+- Xác định kiểu dữ liệu của từng cột
+
+Bước 4: Thống kê cơ bản
+- Đếm tổng số chuyến bay
+- Top 10 sân bay khởi hành (departure) nhiều nhất
+- Top 10 loại máy bay (typecode) phổ biến nhất
+
+Bước 5: Xử lý dữ liệu thiếu
+- Fill giá trị NULL với "UNKNOWN" cho các cột:
+  * flight_id, adep_p, ades_p
+  * registration, model, typecode
+
+Bước 6: Filtering ví dụ
+- Lọc chuyến bay từ sân bay cụ thể (ví dụ: JFK)
+- Tính toán số lượng chuyến bay đã lọc
+
+Bước 7: Lưu kết quả
+- Output path: hdfs://namenode:9000/user/root/final/merged_flights.parquet
+- Mode: Overwrite (ghi đè nếu đã tồn tại)
+- Format: Parquet (tối ưu)
+
+Bước 8: Dọn dẹp
+- Dừng SparkSession để giải phóng tài nguyên
+
+4.3. Streamlit Dashboard (hdfs_yarn_setup/streamlit_app/streamlit_dashboard.py)
+--------------------------------------------------------------------------------
+Mục đích: Giao diện trực quan để khám phá dữ liệu
+
+Tính năng chính:
+
+A. Tối ưu hóa bộ nhớ:
+   - Load dữ liệu theo từng file (không load tất cả cùng lúc)
+   - Chỉ đọc các cột cần thiết
+   - Aggregate counts dần dần (incremental aggregation)
+   - Cache kết quả với @st.cache_data
+
+B. Phân tích và hiển thị:
+   - Flights per Month: Biểu đồ cột theo tháng
+   - Top 20 Departure Airports: Sân bay đi nhiều nhất
+   - Top 20 Arrival Airports: Sân bay đến nhiều nhất
+   - Top 20 Aircraft Types: Loại máy bay phổ biến
+   - Top 20 Registrations: Số đăng ký máy bay
+   - Unknown Flights: Chuyến bay có flight_id = "UNKNOWN"
+
+C. Bộ lọc tương tác (Sidebar):
+   - Lọc theo tháng
+   - Lọc theo loại máy bay
+   - Lọc theo sân bay đi
+   - Lọc theo sân bay đến
+   - Multi-select cho mỗi filter
+
+D. Tùy chỉnh giao diện:
+   - Background image tùy chỉnh
+   - CSS styling
+
+Đường dẫn dữ liệu:
+- Processed data: D:\Long\Uni\Big Data\flight-analytics\hdfs_yarn_setup\data\processed
+
+4.4. Cluster Management Scripts
+--------------------------------
+
+A. check-cluster.ps1 (PowerShell):
+   - Kiểm tra trạng thái container
+   - Report HDFS status (dfsadmin -report)
+   - List YARN nodes
+   - List YARN applications
+   - Hiển thị cluster info
+   - Cung cấp link đến Web UI (HDFS: 9870, YARN: 8088)
+
+B. Dockerfile:
+   - Base image: bde2020/hadoop-namenode
+   - Cài đặt Python 3 và pip
+   - Cài đặt hdfs library
+   - Fix Debian Stretch repository (đã cũ)
+   - Sử dụng archive.debian.org
+
+C. hadoop.env:
+   - Core configurations (fs.defaultFS, compression)
+   - HDFS settings (replication, webhdfs, permissions)
+   - YARN configurations (memory, CPU, scheduler)
+   - MapReduce settings (Java heap, memory allocation)
+
+================================================================================
+5. WORKFLOW XỬ LÝ DỮ LIỆU
+================================================================================
+
+Quy trình xử lý end-to-end:
+
+[1] Data Ingestion
+    ↓
+    - Upload file opdi_clean.parquet vào local
+    - Mount volume vào Docker container (./data:/data)
+    
+[2] Quality Assessment
+    ↓
+    - Chạy Quality assessment.py
+    - Kiểm tra NULL values, data types
+    - Đánh giá tính toàn vẹn dữ liệu
+    
+[3] Upload to HDFS
+    ↓
+    - Copy data vào HDFS: /user/root/processed/
+    - Data được replicate 3 lần trên các DataNode
+    
+[4] Spark Processing
+    ↓
+    - Submit analytics.py lên YARN
+    - Spark đọc data từ HDFS
+    - Thực hiện transformations và aggregations
+    - Xử lý missing values
+    
+[5] Save Results
+    ↓
+    - Lưu kết quả vào HDFS: /user/root/final/
+    - Format: Parquet (optimized)
+    
+[6] Visualization
+    ↓
+    - Export processed data từ HDFS ra local
+    - Load vào Streamlit dashboard
+    - Interactive analysis và filtering
+
+================================================================================
+6. CÁCH SỬ DỤNG
+================================================================================
+
+6.1. Khởi động Hadoop Cluster:
+-------------------------------
+cd hdfs_yarn_setup
+docker-compose up -d
+
+Kiểm tra trạng thái:
+.\check-cluster.ps1
+
+Web UIs:
+- HDFS NameNode: http://localhost:9870
+- YARN ResourceManager: http://localhost:8088
+- NodeManager1: http://localhost:8042
+- HistoryServer: http://localhost:8188
+
+6.2. Upload dữ liệu lên HDFS:
+------------------------------
+docker exec namenode hdfs dfs -mkdir -p /user/root/processed
+docker exec namenode hdfs dfs -put /data/opdi_clean.parquet /user/root/processed/
+
+6.3. Chạy Quality Assessment (local):
+--------------------------------------
+python "Quality assessment.py"
+
+6.4. Submit Spark job:
+----------------------
+docker exec -it spark-master spark-submit \
+  --master yarn \
+  --deploy-mode cluster \
+  /path/to/analytics/analytics.py
+
+6.5. Chạy Dashboard:
+--------------------
+cd hdfs_yarn_setup/streamlit_app
+streamlit run streamlit_dashboard.py
+
+6.6. Dừng cluster:
+------------------
+docker-compose down
+# Hoặc giữ lại volumes:
+docker-compose down -v
+
+================================================================================
+7. CẤU TRÚC THỨ MỤC
+================================================================================
+
+flight-analytics/
+│
+├── README.md                          # Thông tin dataset và link download
+├── Quality assessment.py              # Script đánh giá chất lượng dữ liệu
+├── .gitignore                         # Ignore .idea, .venv, data, *.parquet
+│
+├── data/                              # Thư mục chứa dữ liệu (ignored)
+│   └── opdi_clean.parquet             # 43.5M records flight data
+│
+├── analytics/                         # Module phân tích chính
+│   └── analytics.py                   # Spark job xử lý dữ liệu trên HDFS
+│
+└── hdfs_yarn_setup/                   # Cấu hình Hadoop cluster
+    ├── docker-compose.yml             # Định nghĩa toàn bộ cluster
+    ├── Dockerfile                     # Custom image với Python
+    ├── hadoop.env                     # Environment variables
+    ├── check-cluster.ps1              # Script kiểm tra health
+    │
+    ├── data/                          # Mount point cho HDFS
+    │
+    └── streamlit_app/                 # Dashboard application
+        ├── streamlit_dashboard.py     # Main dashboard code
+        └── bg.jpg                     # Background image (optional)
+
+================================================================================
+8. CÔNG NGHỆ VÀ CÔNG CỤ
+================================================================================
+
+Big Data Stack:
+├── Hadoop 3.2.1
+│   ├── HDFS: Distributed file system
+│   └── YARN: Resource manager
+│
+├── Apache Spark
+│   └── PySpark API cho Python
+│
+├── Data Processing:
+│   ├── PyArrow: High-performance columnar data
+│   ├── Pandas: Data analysis
+│   └── Parquet format: Columnar storage
+│
+├── Visualization:
+│   └── Streamlit: Interactive dashboards
+│
+├── Infrastructure:
+│   ├── Docker & Docker Compose
+│   ├── Linux containers
+│   └── Bridge networking
+│
+└── Development:
+    ├── Python 3.x
+    ├── Java 8 (Hadoop requirement)
+    └── PowerShell (Windows scripting)
+
+================================================================================
+9. THÔNG SỐ KỸ THUẬT
+================================================================================
+
+Cluster Resources:
+- Total DataNodes: 3
+- Total NodeManagers: 3
+- Memory per NodeManager: 4 GB
+- CPU per NodeManager: 4 vCores
+- Total cluster memory: ~12 GB
+- Total cluster vCores: ~12
+
+HDFS Configuration:
+- Block size: 128 MB
+- Replication factor: 3
+- WebHDFS: Enabled
+- Permissions: Disabled (dev environment)
+
+YARN Configuration:
+- Max allocation per container: 8 GB
+- Max vCores per container: 4
+- Scheduler: CapacityScheduler
+- Log aggregation: Enabled
+
+MapReduce:
+- Child JVM heap: 4 GB
+- Map memory: 4 GB
+- Reduce memory: 8 GB
+
+Network Ports:
+- 9000: HDFS service
+- 9870: HDFS Web UI
+- 9864-9866: DataNode ports
+- 8088: YARN ResourceManager UI
+- 8032: ResourceManager RPC
+- 8042-8044: NodeManager UIs
+- 8188: HistoryServer UI
+
+================================================================================
+10. PHÂN TÍCH DỮ LIỆU
+================================================================================
+
+Dataset Statistics:
+- Total records: 43,540,769 flights
+- Time period: Tùy theo dof (date of flight)
+- Geographic coverage: Global (multiple airports)
+- Aircraft types: Multiple typecodes
+
+Key Metrics Available:
+1. Temporal Analysis:
+   - Flights per month/day
+   - Seasonal patterns
+   - Peak travel periods
+
+2. Geographic Analysis:
+   - Busiest departure airports
+   - Popular destinations
+   - Flight routes
+
+3. Fleet Analysis:
+   - Aircraft type distribution
+   - Registration patterns
+   - Model usage
+
+4. Data Quality:
+   - NULL value percentages
+   - UNKNOWN flight_ids
+   - Missing registrations
+
+================================================================================
+11. TÍNH NĂNG NỔI BẬT
+================================================================================
+
+✓ Scalability:
+  - Xử lý được hàng chục triệu bản ghi
+  - Có thể mở rộng cluster bằng cách thêm nodes
+  - Partition data trên HDFS
+
+✓ Fault Tolerance:
+  - Data replication (3 copies)
+  - Automatic failover
+  - Job recovery qua HistoryServer
+
+✓ Performance:
+  - Distributed processing với Spark
+  - Columnar format (Parquet) tối ưu I/O
+  - In-memory computing với Spark
+  - Compression (Snappy codec)
+
+✓ Monitoring:
+  - Web UIs cho HDFS và YARN
+  - Health check scripts
+  - Application tracking
+
+✓ Interactive Analysis:
+  - Real-time filtering với Streamlit
+  - Multiple visualization types
+  - Memory-optimized dashboard
+
+================================================================================
+12. HẠN CHẾ VÀ CẢI TIẾN
+================================================================================
+
+Hạn chế hiện tại:
+- Dataset không được lưu trong repository (quá lớn)
+- Dashboard đọc từ local files thay vì trực tiếp từ HDFS
+- Hardcoded paths trong streamlit_dashboard.py
+- Chỉ có 1 Spark job mẫu
+
+Đề xuất cải tiến:
+1. Tích hợp Spark Streaming cho real-time processing
+2. Kết nối trực tiếp Dashboard với HDFS qua WebHDFS API
+3. Thêm nhiều analytics jobs (ML, predictions)
+4. Implement security (Kerberos authentication)
+5. Add Hive/HBase cho SQL-like queries
+6. Setup CI/CD pipeline
+7. Monitoring với Prometheus/Grafana
+8. Auto-scaling cluster resources
+
+================================================================================
+13. KẾT LUẬN
+================================================================================
+
+Flight Analytics là một dự án Big Data hoàn chỉnh, demonstrating:
+
+1. Kiến trúc phân tán với Hadoop ecosystem
+2. Xử lý dữ liệu quy mô lớn với Spark
+3. Storage optimization với HDFS và Parquet
+4. Interactive visualization với Streamlit
+5. Containerization với Docker
+6. Best practices trong data engineering
+
+Dự án phù hợp cho:
+- Học tập về Big Data technologies
+- Proof-of-concept cho flight analytics
+- Template cho các dự án tương tự
+- Research về aviation data
+
+Technical stack đầy đủ từ data ingestion đến visualization, 
+có thể scale để xử lý petabytes of data trong production environment.
+
+================================================================================
+                              KẾT THÚC BÁO CÁO
+================================================================================
