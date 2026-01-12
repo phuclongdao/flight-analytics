@@ -2,3 +2,6 @@
 .venv
 data
 *.parquet
+
+test.py
+tmp.py
