@@ -12,7 +12,7 @@ spark = SparkSession.builder \
     .getOrCreate()
 
 start_time = time.time()
-hdfs_path = "webhdfs://localhost:9870/user/data/opdi_clean.parquet"
+hdfs_path = "webhdfs://localhost:9870/user/root/opdi_clean.parquet"
 flights_df = spark.read.parquet(hdfs_path)
 
 print("Read .parquet successfully")
